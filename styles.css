@@ -1,0 +1,85 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  /* dvh tracks the mobile URL bar as it hides and shows; the 100% above is the fallback
+     for engines without it. Without this the canvas is sized against a viewport that
+     includes browser chrome, so the game sits letterboxed even after going fullscreen. */
+  height: 100dvh;
+  background: #0b0710;
+  overflow: hidden;
+  /* NOT position: fixed. Pinning <html> that way stops iOS rubber-banding, but it also
+     collapses the layout on some mobile engines and left the game as a blank canvas.
+     touch-action, overscroll-behavior and overflow below already cover the scrolling. */
+  /* Touch defaults are all hostile to a tap-to-throw game: without these a tap can
+     scroll the page, pinch can zoom the canvas out of alignment with its own hitboxes,
+     a swipe down triggers pull-to-refresh mid-round, and a long press starts a text
+     selection. touch-action also removes the ~300ms synthesised-click delay. */
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+#frame {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#game {
+  display: block;
+  image-rendering: pixelated;
+  cursor: none;
+  background: #2b1b4a;
+  touch-action: none;
+}
+
+/* The playfield is 480x272 — a landscape frame. Held upright it letterboxes down to
+   something too small to aim at, so ask for the phone to be turned rather than shipping
+   an unplayable portrait mode. Keyed off orientation AND a coarse pointer, so it never
+   appears on a narrow desktop window. */
+#rotate {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #0b0710;
+  color: #fdf6e3;
+  font: 14px monospace;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  line-height: 1.6;
+  z-index: 10;
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate { display: flex; }
+  #frame { visibility: hidden; }
+}
+
+/* Also used to surface a load error, so it has to sit above the canvas and be readable
+   whatever is behind it — a blank blue canvas with the reason hidden underneath it is
+   exactly the failure this is meant to prevent. */
+#fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(11, 7, 16, 0.92);
+  color: #fdf6e3;
+  font: 14px monospace;
+  text-align: center;
+  padding: 1.5rem;
+  overflow-wrap: anywhere;
+}
+
+#fallback[hidden] { display: none; }

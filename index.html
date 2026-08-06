@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8">
+  <!-- user-scalable=no keeps a stray pinch from zooming the canvas out of alignment with
+       its own hitboxes; viewport-fit=cover fills past the notch on a phone in landscape. -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0710">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Get Egged</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="frame">
+    <canvas id="game" width="960" height="544">
+      Shfletuesi juaj nuk e mbështet canvas.
+    </canvas>
+    <p id="fallback" hidden>Shfletuesi juaj nuk e mbështet canvas 2D. Provo Chrome ose Firefox.</p>
+  </div>
+  <div id="rotate">Rrotullo telefonin<br>për të luajtur</div>
+  <!-- Deliberately a classic script, before the module and not a module itself, so it is
+       parsed and running first. A module that fails to parse, fails to load, or throws
+       during evaluation never reaches main.js's own frame-level error handling, and the
+       page just sits on a blank canvas giving no clue why. This puts the reason on the
+       screen — which is the difference between a bug report and a guess. -->
+  <script>
+    (function () {
+      function show(msg) {
+        var el = document.getElementById('fallback');
+        if (!el) return;
+        el.textContent = 'GABIM: ' + msg;
+        el.removeAttribute('hidden');
+      }
+      addEventListener('error', function (e) {
+        // Resource errors (a 404 on a module) carry no message and do not bubble, hence
+        // the capture phase and the fallback to the element that failed.
+        if (e.target && e.target !== window && (e.target.src || e.target.href)) {
+          show('nuk u ngarkua ' + String(e.target.src || e.target.href).split('/').pop());
+          return;
+        }
+        show((e.message || 'error') + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + e.lineno : ''));
+      }, true);
+      addEventListener('unhandledrejection', function (e) {
+        show(String((e.reason && e.reason.message) || e.reason || 'promise'));
+      });
+    })();
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
