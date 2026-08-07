@@ -20,6 +20,14 @@ export function escapeMsForRound(round) {
   return Math.max(raw, ROUND.ESCAPE_MS_MIN);
 }
 
+/**
+ * Is `round` the last one? Clearing it wins the game rather than starting the next.
+ * Failing it is still an ordinary game over — winning is the only thing this changes.
+ */
+export function isFinalRound(round) {
+  return round >= ROUND.FINAL_ROUND;
+}
+
 /** Politicians released together: singles early, pairs from PAIRS_FROM_ROUND. */
 export function targetsPerRelease(round) {
   return round >= ROUND.PAIRS_FROM_ROUND ? 2 : 1;

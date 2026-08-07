@@ -70,6 +70,11 @@ Each round releases 10 politicians, 3 eggs per release. Eggs fly in an arc with 
 Land it with your first egg of a release for +50%. Egging a flamingo or a fellow protester costs
 200 points — they're on your side.
 
+**Clear round 12 and you win.** Round 12 is where `speedMultiplier` hits `SPEED_CAP` and
+`escapeMsForRound` hits `ESCAPE_MS_MIN`, so it is the exact round the game stops getting
+harder — and it is two full passes of the six scenes. Clearing it opens the finale; failing it
+is an ordinary game over, like any other round. Set by `ROUND.FINAL_ROUND`.
+
 ## Tuning
 
 Almost everything you might want to change lives in `src/config.js`:
@@ -210,6 +215,34 @@ Tuning: `MARCH` in `config.js` (`CROSS_MS`, `CATCH_UP`, `PACE_MIN`, `PACE_MAX`) 
 `MARCH_FORE_STRIDE`) live in `background.js`. If the crowd ever looks like it is skating, those
 last two groups are what disagree — `MARCH_SPAN` sets how much boulevard passes per round, and too
 much of it is what no stride can keep up with.
+
+## The finale
+
+Clearing `ROUND.FINAL_ROUND` enters `PHASE.FINALE` instead of `PHASE.CLEAR`: Sheshi Nënë Tereza
+at dawn, with a bronze Edi Rama on a plinth where the square's monument slot usually sits. The
+player brings it down with the same eggs — six hits, each one leaning it further — and then the
+victory card closes the run.
+
+It is played rather than watched, and it cannot be failed. There is no egg count, no timer and
+no quota: the run has already been won, so the finale only decides *when* the statue falls. The
+score is banked the moment it opens, before a single egg is thrown, so leaving early cannot cost
+the player the round they just cleared.
+
+Two things are easy to get wrong if you touch it:
+
+- **The lean is a spring, not a staircase.** Each hit kicks `angle` past the resting tilt
+  (`hits * LEAN_PER_HIT`) and `SETTLE_RATE` pulls it back. A flat step per hit reads as a
+  progress bar rather than as something heavy being fought with.
+- **`FALL_DROP` is not decoration.** Rotating about the top of the plinth alone leaves the
+  statue lying in mid-air at the height of the pedestal it was standing on; it has to come off
+  the plinth as well as turn.
+
+`statueBox()` in `state.js` derives the hitbox from the current lean, so what you can hit is
+always what you can see. Tuning lives in `FINALE` in `config.js`; the art is `render/finale.js`,
+which borrows the square itself from `background.js` (`drawTriumphSquare`, `drawTriumphCrowd`,
+`drawTriumphForeRank`) so the triumph happens in a square the player has already played in twice.
+The statue's head is the same `assets/rama.jpg` the flying politicians wear, desaturated and
+tinted to bronze, with a sculpted head as the fallback if the photo has not loaded.
 
 ## Content note
 

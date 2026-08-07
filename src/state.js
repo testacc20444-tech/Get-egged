@@ -1,6 +1,8 @@
-import { VIEW, FIGURES, ROUND, DECOY, SCORE, MARCH, STRINGS as S, PALETTE as P } from './config.js';
 import {
-  roundPassed, scoreForHit, applyPenalty, pointInBox, targetsPerRelease
+  VIEW, FIGURES, ROUND, DECOY, SCORE, MARCH, FINALE, STRINGS as S, PALETTE as P
+} from './config.js';
+import {
+  roundPassed, scoreForHit, applyPenalty, pointInBox, targetsPerRelease, isFinalRound
 } from './rules.js';
 import { spawnEgg, updateEgg } from './entities/egg.js';
 import {
@@ -8,14 +10,20 @@ import {
 } from './entities/target.js';
 import { spawnDecoy, updateDecoy, decoyBox, hitDecoy, pickDecoyKind } from './entities/decoy.js';
 import {
-  createParticleSystem, spawnEggBreak, spawnFloatingText, spawnDecal, updateParticles
+  createParticleSystem, spawnEggBreak, spawnFloatingText, spawnDecal, spawnSplat,
+  spawnConfetti, updateParticles
 } from './entities/particles.js';
+import {
+  createMonument, updateMonument, hitMonument, monumentBox, monumentCardUp,
+  monumentTimeScale, skipToSettled
+} from './entities/monument.js';
 import { backdropForRound, createBackdrop } from './render/background.js';
 import { loadHighScore, saveHighScore } from './storage.js';
 import { isMuted, toggleMute } from './audio.js';
 
 export const PHASE = {
-  MENU: 'menu', INTRO: 'intro', PLAYING: 'playing', CLEAR: 'clear', OVER: 'over', PAUSED: 'paused'
+  MENU: 'menu', INTRO: 'intro', PLAYING: 'playing', CLEAR: 'clear', OVER: 'over',
+  PAUSED: 'paused', FINALE: 'finale'
 };
 
 // The phases a run can be paused from. INTRO and CLEAR are in the list because they
@@ -25,7 +33,9 @@ export const PHASE = {
 // ESC silently dead for ~3.3s of every round, which reads as a broken key.
 // MENU and OVER stay out: there is no run to protect, and OVER is already a full-screen
 // summary that a pause panel would only cover up.
-const PAUSABLE = [PHASE.INTRO, PHASE.PLAYING, PHASE.CLEAR];
+// FINALE is in the list because it is played, not watched: the player is still throwing,
+// so ESC has to stop it like any other live phase.
+const PAUSABLE = [PHASE.INTRO, PHASE.PLAYING, PHASE.CLEAR, PHASE.FINALE];
 
 // The pause menu's geometry in logical 480x272 space. It lives here, not in hud.js, so
 // the drawing and the click hit-testing read the same numbers; two copies would drift
@@ -73,6 +83,7 @@ export function createGame(hooks) {
     clock: 0,
     releaseGap: 0,
     march: 0,
+    finale: null,
     pausedFrom: null,
     pauseIndex: 0,
     mascot: 'idle',
@@ -106,6 +117,7 @@ function startRound(g, round) {
   g.eggsLeft = 0;
   g.releaseGap = 0;
   g.march = 0;                 // the marching backdrop restarts at the square
+  g.finale = null;
   g.mascot = 'idle';
   g.phase = PHASE.INTRO;
   g.pausedFrom = null;
@@ -126,6 +138,21 @@ function startNewRun(g) {
 export function startAtRound(g, round) {
   g.score = 0;
   startRound(g, round);
+}
+
+/**
+ * Open the triumph straight from the title, on the round that would have earned it.
+ *
+ * Only main.js's DEBUG.START_IN_FINALE override calls this; the real path is clearing
+ * ROUND.FINAL_ROUND. Kept separate from startFinale() for exactly the reason
+ * startAtRound() is kept separate from startNewRun(): a testing aid must not be able to
+ * change how a real run reaches its ending. The score is whatever the player has, which
+ * from the title is zero — the finale is being looked at, not won.
+ */
+export function startAtFinale(g) {
+  g.score = 0;
+  startRound(g, ROUND.FINAL_ROUND);
+  startFinale(g);
 }
 
 /** Abandon whatever is on screen and go back to the title. */
@@ -201,6 +228,9 @@ function resolveLanding(g, egg) {
 
 function endRound(g) {
   if (roundPassed(g.hits, g.round)) {
+    // The last round cleared ends the run in triumph instead of starting another.
+    // Failing it is untouched below: winning is the only thing this branch changes.
+    if (isFinalRound(g.round)) { startFinale(g); return; }
     g.phase = PHASE.CLEAR;
     g.phaseMs = 0;
     g.mascot = 'cheer';
@@ -212,6 +242,72 @@ function endRound(g) {
     saveHighScore(g.score);
     g.best = loadHighScore();
   }
+}
+
+/**
+ * Open the triumph. The run is already won by the time this is called, so the finale
+ * banks the score immediately: whatever the player does with the statue, and however they
+ * leave, the round they just cleared is already on the board.
+ */
+function startFinale(g) {
+  g.phase = PHASE.FINALE;
+  g.phaseMs = 0;
+  g.mascot = 'cheer';
+  g.targets = [];
+  g.eggs = [];
+  g.decoys = [];
+  g.particles = createParticleSystem();
+  g.toast = { text: '', color: P.bad, ms: 0 };
+  g.flash = 0;
+  // Zeroed so nothing downstream can read a stale count as an egg limit. The finale
+  // deliberately does not spend eggs — see click().
+  g.eggsLeft = 0;
+  g.finale = createMonument();
+  saveHighScore(g.score);
+  g.best = loadHighScore();
+  sound(g, 'clear');
+}
+
+// The statue's simulation lives in entities/monument.js. These two keep their old names
+// because they are what main.js and the tests already import; the module underneath is
+// what changed, not the contract.
+export const statueBox = monumentBox;
+export const finaleCardUp = monumentCardUp;
+
+/**
+ * The side-effect sink monument.js draws through. It knows nothing about particles or
+ * audio, so everything it wants to happen in the world comes back through here.
+ */
+function finaleFx(g) {
+  return {
+    splat: (x, y, color) => spawnSplat(g.particles, x, y, color),
+    sound: (name) => sound(g, name),
+    text: (x, y, str, color) => spawnFloatingText(g.particles, x, y, str, color),
+    confetti: (x, y, n, spread) => spawnConfetti(g.particles, x, y, n, spread),
+    // The existing flash, reused rather than a second one bolted on: main.js already
+    // draws it and update() already decays it.
+    flash: () => { g.flash = 1; }
+  };
+}
+
+function updateFinale(g, dtMs) {
+  const f = g.finale;
+  if (!f) return;
+  const fx = finaleFx(g);
+
+  for (let i = g.eggs.length - 1; i >= 0; i -= 1) {
+    if (updateEgg(g.eggs[i], dtMs)) {
+      const egg = g.eggs[i];
+      spawnEggBreak(g.particles, egg.x, egg.y);
+      if (hitMonument(f, egg.x, egg.y, fx) === 'miss') {
+        if (egg.y > VIEW.GROUND_Y - 12) spawnDecal(g.particles, egg.x, egg.y);
+        sound(g, 'miss');
+      }
+      g.eggs.splice(i, 1);
+    }
+  }
+
+  updateMonument(f, dtMs, fx);
 }
 
 /**
@@ -306,12 +402,19 @@ export function update(g, dtMs) {
   // ten minutes of physics still to run.
   if (g.phase === PHASE.PAUSED) return;
 
-  g.clock += dtMs;
-  g.phaseMs += dtMs;
-  updateParticles(g.particles, dtMs);
-  updateDecoys(g, dtMs);
-  if (g.toast.ms > 0) g.toast.ms = Math.max(0, g.toast.ms - dtMs);
-  if (g.flash > 0) g.flash = Math.max(0, g.flash - dtMs * 0.0025);
+  // The finale's slow motion is this line, and it is applied here rather than inside
+  // updateFinale so that EVERYTHING dilates together: the crowd's sway and the sun both
+  // ride g.clock, and the dust and confetti ride updateParticles. Slowing only the statue
+  // would slide it against a world still at full speed, which reads as a dropped frame
+  // rate rather than as slow motion. It is 1 in every phase but the fall.
+  const dt = g.phase === PHASE.FINALE ? dtMs * monumentTimeScale(g.finale) : dtMs;
+
+  g.clock += dt;
+  g.phaseMs += dt;
+  updateParticles(g.particles, dt);
+  updateDecoys(g, dt);
+  if (g.toast.ms > 0) g.toast.ms = Math.max(0, g.toast.ms - dt);
+  if (g.flash > 0) g.flash = Math.max(0, g.flash - dt * 0.0025);
 
   if (g.phase === PHASE.INTRO && g.phaseMs >= INTRO_MS) {
     g.phase = PHASE.PLAYING;
@@ -319,7 +422,8 @@ export function update(g, dtMs) {
     release(g);
     return;
   }
-  if (g.phase === PHASE.PLAYING) { updatePlaying(g, dtMs); return; }
+  if (g.phase === PHASE.PLAYING) { updatePlaying(g, dt); return; }
+  if (g.phase === PHASE.FINALE) { updateFinale(g, dt); return; }
   if (g.phase === PHASE.CLEAR && g.phaseMs >= CLEAR_MS) {
     saveHighScore(g.score);
     g.best = loadHighScore();
@@ -353,6 +457,25 @@ export function click(g, x, y) {
   // the pause menu must not also lob an egg at the bottom of the screen.
   if (isPausable(g.phase) && pointInBox(x, y, PAUSE_BUTTON_BOX)) {
     pause(g);
+    return;
+  }
+  // The finale, after the pause button so opening the menu cannot also lob an egg.
+  // Eggs are unlimited here on purpose: the run has been won, so nothing in this phase
+  // may be able to fail, stall, or run the player out of ways to finish it.
+  if (g.phase === PHASE.FINALE) {
+    if (finaleCardUp(g.finale)) { toMainMenu(g); return; }
+    // Already going over. This used to just let it go, which was right when the sequence
+    // was two seconds long; at six it costs more on a replay than it buys on a first
+    // watch, so a click cuts to the end. Not in the opening moments, though: a player
+    // throwing quickly has a click in flight when the sixth egg lands, and skipping the
+    // topple they just earned is the one thing this must never do.
+    if (g.finale?.state !== 'standing') {
+      const early = g.finale?.state === 'falling' && g.finale.ms < FINALE.SKIP_LOCKOUT_MS;
+      if (g.finale && !early) skipToSettled(g.finale);
+      return;
+    }
+    g.eggs.push(spawnEgg(x, y, false));
+    sound(g, 'throw');
     return;
   }
   if (g.phase !== PHASE.PLAYING || g.eggsLeft <= 0) return;

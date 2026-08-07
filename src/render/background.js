@@ -16,6 +16,19 @@ const CROWD_RANKS = [
 
 const CROWD_SWAY_RATE = 0.0026;
 
+// The surge: what the crowd does when the statue goes over. Only the triumph passes it,
+// the same way only the march passes a stride, so every other scene is unchanged by
+// construction rather than by inspection.
+//
+// The jump is off each person's own phase, not a shared clock — a rank leaving the ground
+// in unison reads as one object bouncing rather than as sixty people. JUMP is a fraction
+// of drawn height: at 0.14 a near-rank protester clears about three pixels, which is as
+// far as a 20px silhouette can go before it reads as floating.
+const SURGE_JUMP = 0.14;
+const SURGE_JUMP_RATE = 0.011;
+const SURGE_SWAY = 2;        // how much faster they rock at full surge
+const SURGE_FISTS_AT = 0.45; // past this, everyone has both fists up
+
 // The walk cycle, used only by scenes that hand protesterSilhouette a stride; every
 // other scene's crowd stands, and passes nothing.
 // STRIDE is how far a foot swings from under the hip, as a fraction of drawn height:
@@ -305,9 +318,17 @@ function hangingArm(ctx, x, y, h, sw) {
  * radians the scene derives from the distance the road has actually travelled, so the
  * legs and the ground under them cannot disagree however fast the round is played.
  */
-function protesterSilhouette(ctx, c, tMs, baseY, s, tone, night, walk = 0, stridePhase = 0) {
+function protesterSilhouette(ctx, c, tMs, baseY, s, tone, night, walk = 0, stridePhase = 0,
+  surge = 0) {
   const u = Math.round(c.h * s);                       // drawn height
-  const wob = Math.sin(tMs * CROWD_SWAY_RATE + c.phase);
+  // Jumping: the feet genuinely leave the ground, so the whole body is measured from a
+  // raised base. Stretching it upward from planted feet reads as a crowd of people
+  // standing on tiptoe, which is not what a square does when the statue comes down.
+  if (surge > 0) {
+    baseY -= Math.round(Math.abs(Math.sin(tMs * SURGE_JUMP_RATE + c.phase)) * u
+      * SURGE_JUMP * surge);
+  }
+  const wob = Math.sin(tMs * CROWD_SWAY_RATE * (1 + surge * SURGE_SWAY) + c.phase);
   const cx = Math.round(c.x + wob * c.sway);           // whole body sways off its own phase
   // c.phase staggers each person off the shared stride clock. A crowd stepping in unison
   // reads as one hinged object being dragged along, not as sixty people.
@@ -366,7 +387,10 @@ function protesterSilhouette(ctx, c, tMs, baseY, s, tone, night, walk = 0, strid
   ctx.arc(cx + lean, headY, headR, 0, Math.PI * 2);
   ctx.fill();
 
-  if (c.pose === POSE.DOWN) {
+  // Past the threshold everyone throws both fists up, whatever they were doing before.
+  // Arms that stayed by their sides while the square jumped would read as a bug.
+  const pose = surge > SURGE_FISTS_AT ? POSE.BOTH : c.pose;
+  if (pose === POSE.DOWN) {
     // Each arm swings against its own side's leg. Without it a walking silhouette reads
     // as a mannequin being slid along the pavement, legs or no legs.
     hangingArm(ctx, tx - 1, shY + 2, armH, -armSwing);
@@ -374,7 +398,7 @@ function protesterSilhouette(ctx, c, tMs, baseY, s, tone, night, walk = 0, strid
   } else {
     ctx.fillRect(holdX, fistY, 1, shY - fistY);        // raised arm
     ctx.fillRect(holdX - 1, fistY - 2, 3, 3);          // fist
-    if (c.pose === POSE.BOTH) {
+    if (pose === POSE.BOTH) {
       ctx.fillRect(otherX, fistY + 1, 1, shY - fistY - 1);
       ctx.fillRect(otherX - 1, fistY - 1, 3, 3);
     } else {
@@ -393,10 +417,10 @@ function protesterSilhouette(ctx, c, tMs, baseY, s, tone, night, walk = 0, strid
  * density — Sazan is a near-empty island, Tirana is a city square. They sit low and
  * short enough that nothing they hold reaches the band the politicians fly through.
  */
-function foreRank(ctx, b, tMs, count, night, walk = 0, stridePhase = 0) {
+function foreRank(ctx, b, tMs, count, night, walk = 0, stridePhase = 0, surge = 0) {
   for (let i = 0; i < count; i += 1) {
     protesterSilhouette(ctx, b.foreCrowd[i], tMs, VIEW.GROUND_Y + 11, 1.18, P.crowdNear,
-      night, walk, stridePhase);
+      night, walk, stridePhase, surge);
   }
 }
 
@@ -1091,12 +1115,13 @@ function kuvendiFacade(ctx, cx, baseY, w, opts = {}) {
 }
 
 /** The far rank of the protest, painted far-to-near from the pre-sorted list. */
-function protestCrowd(ctx, b, tMs, night, walk = 0, stridePhase = 0) {
+function protestCrowd(ctx, b, tMs, night, walk = 0, stridePhase = 0, surge = 0) {
   b.crowd.forEach((c) => {
     const r = CROWD_RANKS[c.rank];
     // No per-rank stride multiplier: the stride is a fraction of drawn height, and the
     // ranks already scale that, so the near rank throws the longer leg for free.
-    protesterSilhouette(ctx, c, tMs, VIEW.GROUND_Y + r.dy, r.s, r.tone, night, walk, stridePhase);
+    protesterSilhouette(ctx, c, tMs, VIEW.GROUND_Y + r.dy, r.s, r.tone, night, walk,
+      stridePhase, surge);
   });
 }
 
@@ -1277,6 +1302,93 @@ function parlamenti(ctx, b, tMs) {
 // in that order: the middle scene is literally the journey between its neighbours.
 // backdropForRound reads the length, so adding a scene here is the only edit needed
 // to put it in the rotation.
+/**
+ * Dawn over the capital. Deliberately built from duskSky's parts rather than new ones —
+ * it is the same city at the other end of the same night — with two things reversed: the
+ * glow sits east and climbs where dusk's sinks west, and the stars are nearly out. Those
+ * two are the whole difference between an evening and a morning at this size.
+ */
+function dawnSky(ctx, b) {
+  const g = ctx.createLinearGradient(0, 0, 0, VIEW.GROUND_Y);
+  g.addColorStop(0, P.dawnTop);
+  g.addColorStop(0.55, P.dawnMid);
+  g.addColorStop(1, P.dawnLow);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, VIEW.W, VIEW.GROUND_Y);
+  ctx.save();
+  ctx.globalAlpha = 0.34;
+  ctx.fillStyle = P.dawnGlow;
+  ctx.beginPath();
+  ctx.ellipse(396, VIEW.GROUND_Y - 24, 172, 54, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = P.star;
+  b.stars.forEach((s) => {
+    const fade = 1 - s.y / 40;
+    if (fade <= 0) return;
+    ctx.globalAlpha = s.a * fade * 0.5;
+    ctx.fillRect(s.x | 0, s.y | 0, 1, 1);
+  });
+  b.skyClouds.forEach((c, i) => {
+    const y = c.y + 22 + i * 8;
+    ctx.globalAlpha = 0.34;
+    ctx.fillStyle = P.duskCloud;
+    ctx.beginPath();
+    ctx.ellipse(c.x, y, c.w * 1.5, c.h * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Only the east tip catches the light. Lighting most of the cloud instead turns it
+    // into a pale disc floating in a dark sky, which reads as an object, not weather.
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = P.dawnGlow;
+    ctx.beginPath();
+    ctx.ellipse(c.x + c.w * 0.85, y, c.w * 0.42, c.h * 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
+/**
+ * Sheshi Nënë Tereza at dawn, with an empty slot in the middle: the finale's stage.
+ *
+ * Every building is the one sheshi() uses, so the triumph happens in a square the player
+ * has already played in twice rather than a new one that merely resembles it. The
+ * arrangement is the one thing that changes: the colonnade slides west and the wings pull
+ * wide, which leaves the centre open to sky and far city. That gap is not decoration — a
+ * bronze figure standing against a pale stone facade is one shape, and the statue has to
+ * read as a silhouette the whole way over.
+ *
+ * Skanderbeg keeps his place on the east side, facing in. The older monument watching the
+ * newer one come down is the entire joke, and it costs one call.
+ */
+export function drawTriumphSquare(ctx, b, tMs) {
+  dawnSky(ctx, b);
+  sun(ctx, 404, 150);
+  ridge(ctx);
+  farBlocks(ctx, SQUARE_FAR_Y - 4, false);
+  paving(ctx, SQUARE_FAR_Y, P.paving, P.pavingLine, P.pavingLight);
+  squareWing(ctx, -16, SQUARE_FAR_Y, 76, 36, false);
+  classicalFacade(ctx, 112, SQUARE_FAR_Y, 128, 44, 7);
+  squareWing(ctx, 344, SQUARE_FAR_Y, 152, 40, false);
+  squareLamp(ctx, 150, VIEW.GROUND_Y + 2, 44, false);
+  squareLamp(ctx, 340, VIEW.GROUND_Y + 2, 44, false);
+  b.squareTrees.forEach((t) => boulevardTree(ctx, t.x, VIEW.GROUND_Y + 2 + t.dy, t.h));
+  skanderbeg(ctx, 408, VIEW.GROUND_Y + 4, 0.85, -1);
+}
+
+/**
+ * The crowd that brought it down, in two layers so the monument can be drawn between
+ * them. That ordering only matters once the statue is on the ground: standing, it clears
+ * every head anyway, but lying in the square it has to be in front of the far ranks and
+ * behind the near one, or it reads as buried under the crowd instead of among it.
+ * Twelve in the near rank rather than the usual ten — the square is full.
+ */
+export function drawTriumphCrowd(ctx, b, tMs, surge = 0) {
+  protestCrowd(ctx, b, tMs, false, 0, 0, surge);
+}
+
+export function drawTriumphForeRank(ctx, b, tMs, surge = 0) {
+  foreRank(ctx, b, tMs, 12, false, 0, 0, surge);
+}
+
 const SCENES = [lagoon, sazan, sheshi, march, parlamenti, tirana];
 
 /** Which scene round `round` is played against. Cycles once past the last one. */

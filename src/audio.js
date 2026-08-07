@@ -75,7 +75,23 @@ const SOUNDS = {
   clear:   () => [523, 659, 784, 1046].forEach((f, i) =>
                    tone({ freq: f, dur: 0.14, type: 'square', gain: 0.11, delay: i * 0.09 })),
   penalty: () => { tone({ freq: 180, endFreq: 90, dur: 0.30, type: 'sawtooth', gain: 0.16 });
-                   tone({ freq: 90, dur: 0.30, type: 'square', gain: 0.10 }); }
+                   tone({ freq: 90, dur: 0.30, type: 'square', gain: 0.10 }); },
+  // The finale. The statue used to land on `splat`, which is the cue an egg makes: a
+  // ninety-pixel bronze figure hitting stone sounded exactly like the thing thrown at it,
+  // and it was the most jarring moment in the sequence.
+  //
+  // `crash` is long and low where splat is short and wet — a filtered noise burst sweeping
+  // down for the stone, under two sine bodies for the mass of the bronze.
+  crash:    () => { noise({ dur: 0.85, gain: 0.34, filterFreq: 700, sweepTo: 90 });
+                    tone({ freq: 90, endFreq: 38, dur: 0.70, type: 'sine', gain: 0.30 });
+                    tone({ freq: 140, endFreq: 52, dur: 0.35, type: 'triangle', gain: 0.16 }); },
+  // Each bounce of the head. Metallic and short, so two of them in a second read as one
+  // object hitting twice rather than as the statue landing again.
+  headfall: () => { tone({ freq: 430, endFreq: 200, dur: 0.16, type: 'triangle', gain: 0.13 });
+                    noise({ dur: 0.10, gain: 0.10, filterFreq: 1800, sweepTo: 400 }); },
+  // The crowd. Noise swept UP rather than down, which is what separates a cheer from
+  // debris; long and quiet enough to sit under the crash instead of competing with it.
+  roar:     () => noise({ dur: 1.60, gain: 0.15, filterFreq: 420, sweepTo: 900 })
 };
 
 export function play(name) {

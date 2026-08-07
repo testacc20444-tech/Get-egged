@@ -32,6 +32,30 @@ export function spawnEggBreak(sys, x, y) {
   spawnSplat(sys, x, y, PALETTE.egg);
 }
 
+/**
+ * Paper thrown up over the square when the statue goes over. Reuses `bits` rather than
+ * introducing a particle type: the only thing confetti needs that yolk does not is to fall
+ * slowly and last, and that is one gravity scale and a longer ttl.
+ *
+ * Red and black are the flag; the shell white is what is left of the eggs.
+ */
+export function spawnConfetti(sys, x, y, count, spread) {
+  const colors = [PALETTE.flag, PALETTE.flag, PALETTE.flagEagle, PALETTE.egg];
+  for (let i = 0; i < count; i += 1) {
+    sys.bits.push({
+      x: x + (Math.random() - 0.5) * spread,
+      y: y - Math.random() * 20,
+      vx: (Math.random() - 0.5) * 0.07,
+      vy: -0.05 - Math.random() * 0.09,
+      r: 1 + Math.round(Math.random()),
+      g: 0.16,                                 // it is paper, so it hangs
+      color: colors[i % colors.length],
+      life: 0,
+      ttl: 2600 + Math.random() * 1800
+    });
+  }
+}
+
 export function spawnFloatingText(sys, x, y, text, color = PALETTE.hudText) {
   sys.floats.push({ x, y, text, color, life: 0, ttl: 900 });
 }
@@ -54,7 +78,8 @@ function advance(list, dtMs, step) {
 
 export function updateParticles(sys, dtMs) {
   advance(sys.bits, dtMs, (p) => {
-    p.vy += GRAVITY * dtMs;
+    // `g` scales gravity per bit; yolk and shell leave it unset and fall at 1.
+    p.vy += GRAVITY * (p.g ?? 1) * dtMs;
     p.x += p.vx * dtMs;
     p.y += p.vy * dtMs;
   });

@@ -137,7 +137,26 @@ export const PALETTE = {
   throwerHair: '#231c1f',
   throwerHairHi: '#3b2f33',
   bandana: '#d8242f',
-  bandanaShade: '#96131e'
+  bandanaShade: '#96131e',
+  // The finale's monument. Bronze rather than the stone Skanderbeg is cut from, so the
+  // two read as different monuments in the same square rather than one moved. Four tones
+  // in the usual order — base, Lit for the faces catching the dawn, Shade for the return
+  // faces, Deep for the underside of the greatcoat and the shadow it casts on its plinth.
+  bronze: '#8a6a3c',
+  bronzeLit: '#b98f4e',
+  bronzeShade: '#5d4626',
+  bronzeDeep: '#382914',
+  // Dawn over Sheshi Nënë Tereza. Deliberately close to the dusk set — the same city, the
+  // other end of the night — but the glow sits east and climbs, where dusk's sinks west.
+  dawnTop: '#241d46',
+  dawnMid: '#8d4f74',
+  dawnLow: '#f2b978',
+  dawnGlow: '#ffd79a',
+  dust: '#c9bda6',
+  rubble: '#8e8676',
+  // Split paving. Deliberately much darker than pavingLine, which is the joint between
+  // slabs: at that contrast a crack reads as one more joint and disappears into the square.
+  pavingCrack: '#4e463e'
 };
 
 export const FIGURES = [
@@ -148,6 +167,11 @@ export const FIGURES = [
 
 export const ROUND = {
   TARGETS_PER_ROUND: 10,
+  // Clearing this round wins the game instead of starting the next one. Not an arbitrary
+  // number: speedMultiplier reaches SPEED_CAP and escapeMsForRound reaches ESCAPE_MS_MIN
+  // by round 12, so it is the exact point the game stops getting harder — and it is two
+  // full passes of the six scenes, so every backdrop is seen twice before the last one.
+  FINAL_ROUND: 12,
   // Hits needed to advance, as [upToRound, hitsRequired] tiers read in order.
   // The final tier applies to every round beyond it.
   QUOTA_TIERS: [[2, 6], [5, 7], [9, 8], [Infinity, 9]],
@@ -161,6 +185,110 @@ export const ROUND = {
 };
 
 export const EGG = { FLIGHT_MS: 350, RADIUS: 4, HAND_X: 240, HAND_Y: 250, ASPECT: 1.4 };
+
+// The triumph. Round FINAL_ROUND cleared opens on a bronze Rama over the square at dawn,
+// and the player brings it down with the same eggs. There is deliberately no egg count,
+// no timer and no quota here: the run has already been won, so the finale only decides
+// when the statue falls, never whether it does.
+export const FINALE = {
+  HITS_TO_TOPPLE: 6,
+  LEAN_PER_HIT: 0.15,       // radians of resting tilt each landed egg adds
+  LEAN_KICK: 0.09,          // extra tilt on the frame of impact, sprung back out below
+  // How fast the lean returns to its resting angle, as a fraction per ms. The statue
+  // lurching past the tilt it keeps and righting itself is what makes it read as
+  // something heavy being fought with; a flat step per hit reads as a progress bar.
+  SETTLE_RATE: 0.006,
+  FALL_MS: 1500,
+  FALL_ANGLE: 1.62,         // past horizontal, so it lands rather than balancing on edge
+  // How far the whole figure drops as it goes over. Rotation alone pivots it about the
+  // TOP of its plinth, which leaves it lying in mid-air a plinth's height above the
+  // square; it has to come off the pedestal as well as turn. GROUND_Y - STATUE.footY,
+  // less a few pixels so it settles among the crowd rather than under their feet.
+  FALL_DROP: 38,
+  // The fall is in three acts, because one smooth arc has no weight in it. TEETER is the
+  // fraction of it spent hanging at the tipping point, rocking, before its own mass takes
+  // over; then it accelerates; then SETTLE rocks it to a stop on the paving.
+  // TEETER was 0.16 and is now longer: under the slow motion below it is the beat the
+  // whole sequence hangs on, and at the old value it was over before it registered.
+  TEETER: 0.24,
+  TEETER_ROCK: 0.05,
+  // The world runs slow through the tipping point and returns to full speed as its own
+  // weight takes it. SLOMO_RAMP is the fraction of the post-teeter fall spent getting
+  // back to 1.0, so the statue is at normal speed well before it hits the paving — an
+  // impact in slow motion reads as weightless, which is the opposite of the point.
+  SLOMO_SCALE: 0.3,
+  SLOMO_RAMP: 0.3,
+  SETTLE_MS: 440,
+  SETTLE_ROCK: 0.055,
+  SHAKE_MS: 260,            // screen kick on each hit, and a longer one when it lands
+  SHAKE_PX: 2,
+  LAND_SHAKE_MS: 520,
+  SPLAT_R: 3,               // yolk left on the bronze by each landed egg
+  DUST_MS: 1600,
+  // The head, once the neck shears on impact. Where it sits on the statue's own axis —
+  // the same point statueFigure draws it at, so the break happens where the head is.
+  HEAD_LOCAL: { x: -9, y: -82 },
+  HEAD_RADIUS: 7,
+  HEAD_REST_Y: 4,           // above GROUND_Y, so it lies among the crowd, not under it
+  // The launch is designed rather than taken straight from the body's angular velocity.
+  // Tangentially the head is travelling almost exactly downward when the statue lands, so
+  // a purely physical launch drops it at the feet and reads as the head falling off rather
+  // than being thrown clear. The neck shearing is what throws it, and this is that.
+  HEAD_LAUNCH_VX: 0.085,
+  HEAD_LAUNCH_VY: -0.065,
+  HEAD_GRAVITY: 0.0003,
+  HEAD_RESTITUTION: 0.45,
+  HEAD_BOUNCE_FRICTION: 0.8,   // horizontal speed kept through each bounce
+  HEAD_ROLL_FRICTION: 0.00012, // px/ms of speed shed per ms once it is rolling
+  HEAD_STOP_V: 0.004,          // below this it is at rest, and stops being simulated
+  // The camera. It is identity for the whole of `standing` and that is not a stylistic
+  // choice: statueBox() returns world coordinates with no notion of a camera, so a view
+  // that drifted while the player was aiming would need an inverse transform on every
+  // click and could desync the hitbox from the drawn figure. Moving it only once the
+  // player has stopped throwing leaves the aim math genuinely untouched.
+  CAM_ZOOM: 1.35,
+  CAM_IN_MS: 900,           // finale-ms of the fall spent reaching full zoom
+  CAM_HOLD_MS: 1200,        // held after impact, while the head rolls
+  CAM_OUT_MS: 900,          // and eased back out. HOLD + OUT must be < CARD_DELAY_MS,
+                            // or the card is drawn under a zoom.
+  // After it lands, before the victory card rises. Was 800, which put the card up while
+  // the head was still rolling; the head comes to rest about 1.3s after impact.
+  CARD_DELAY_MS: 2400,
+  CARD_FADE_MS: 700,
+  CARD_FROM: 0.88,          // the scale it grows from
+  CARD_BACK: 1.7,           // how far past 1 it overshoots before settling
+  // How long the fall is protected from the skip, in finale-ms. A player throwing quickly
+  // has a click in flight when the sixth egg lands, and without this that click would skip
+  // the topple they just earned. Finale time, so at SLOMO_SCALE it is ~500ms of wall clock.
+  SKIP_LOCKOUT_MS: 150,
+  // The crowd's reaction. SURGE_BASE is where it settles rather than zero: the square has
+  // just won, and a crowd that went back to an idle sway the moment the dust cleared would
+  // undo the scene. They are still celebrating under the victory card.
+  SURGE_MS: 2600,
+  SURGE_BASE: 0.35,
+  CONFETTI: 46,             // pieces thrown up at the impact
+  CONFETTI_SPREAD: 150,     // how wide across the square they come from
+  CRACK_MS: 520,            // how long the paving takes to finish breaking
+  // Where the paving splits. Forward of the plinth and BELOW the fallen figure rather than
+  // level with it: at the statue's own height the cracks draw underneath the greatcoat and
+  // are invisible, which is exactly what the first pass shipped. Down here they open across
+  // the empty paving between the wreck and the viewer, where there is nothing to hide them.
+  CRACK_DX: 50,
+  CRACK_DY: 6,              // below GROUND_Y
+  // The monument, in logical pixels. The plinth stands just behind the crowd's near rank
+  // so the figure clears every head, and the statue's own height puts its chest in the
+  // band the crosshair already lives in.
+  PLINTH: { x: 236, baseY: 214, w: 58, h: 40 },
+  STATUE: { footY: 174, h: 92, w: 38 },
+  // The pivot sits at the front edge of the feet, not the centre: a statue goes over its
+  // own base. Offset from PLINTH.x, in logical pixels.
+  PIVOT_DX: 9,
+  // The hitbox, centred this far up the statue's own axis and this big. Generous on
+  // purpose — this is a reward, not a test of aim.
+  AIM_UP: 0.62,
+  AIM_W: 46,
+  AIM_H: 54
+};
 
 export const SCORE = { FIRST_EGG_BONUS: 0.5, DECOY_PENALTY: 200 };
 
@@ -230,6 +358,13 @@ export const STRINGS = {
   pauseHint: 'ESC=PAUZË',
   pauseKeys: 'SHIGJETAT + ENTER   ESC = VAZHDO',
   fatal: 'GABIM: LOJA U NDAL.',
+  // The finale. `topple` is the standing instruction, the rest is the victory card.
+  topple: 'RRËZOJENI!',
+  won: 'FITORE!',
+  wonSub: 'REVOLUCIONI I FLAMINGOVE FITOI',
+  // Rendered after the round number, so moving ROUND.FINAL_ROUND cannot leave the card
+  // claiming a total the game no longer asks for.
+  wonRound: 'RRETHE TË KALUARA',
   placard: 'RnB BnB',
   placardTop: 'RnB',
   placardBottom: 'BnB'
@@ -254,7 +389,16 @@ export const FACES = {
 // branch in main.js does not fire at all when it is 1. Raise it (3 = the square, 4 = the
 // march, 5 = the Kuvendi, 6 = Tirana at night) to reach a later scene without playing up
 // to it, and put it back to 1 before releasing: it also skips the gentle opening rounds.
-export const DEBUG = { START_ROUND: 1 };
+// START_IN_FINALE opens the triumph on the first click, so the ending can be looked at
+// without playing twelve rounds to reach it. It takes precedence over START_ROUND, and
+// the score on the victory card will be 0 because none was earned. Dismissing the card
+// goes back to the title, where the next click opens it again — which is what makes it
+// usable for looking at the scene over and over.
+//
+// BOTH of these are testing aids and BOTH must be back to their shipping values —
+// START_ROUND: 1 and START_IN_FINALE: false — before releasing. Neither branch fires at
+// those values, and the game starts exactly as it always did.
+export const DEBUG = { START_ROUND: 1, START_IN_FINALE: false };
 
 export const MUSIC = {
   SRC: 'assets/music.mp3',

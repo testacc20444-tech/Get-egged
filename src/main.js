@@ -1,7 +1,8 @@
 import { VIEW, PALETTE as P, STRINGS as S, DEBUG } from './config.js';
 import {
   createGame, update, click as gameClick, hudView, pauseView, pause, togglePause,
-  pauseHover, movePauseSelection, activatePauseItem, startAtRound, PHASE, TOAST_FADE_MS
+  pauseHover, movePauseSelection, activatePauseItem, startAtRound, startAtFinale,
+  PHASE, TOAST_FADE_MS
 } from './state.js';
 import { createInput } from './input.js';
 import { initAudio, play, toggleMute } from './audio.js';
@@ -9,6 +10,8 @@ import { initMusic, setMusicDucked } from './music.js';
 import { preloadFaces } from './render/faces.js';
 import { drawBackground } from './render/background.js';
 import { drawTarget, drawDecoy, drawEgg, drawCrosshair, drawThrower, drawMascot } from './render/sprites.js';
+import { drawFinaleScene, drawFinaleOverlay, finaleShake } from './render/finale.js';
+import { monumentCamera } from './entities/monument.js';
 import {
   drawHud, drawMenu, drawRoundIntro, drawRoundClear, drawGameOver, drawPauseMenu,
   drawToast, drawFlash
@@ -115,7 +118,8 @@ function start() {
   // Deliberately lives here rather than in startNewRun(): state.js is what the tests
   // drive, and a debug switch must not be able to change how a real run begins.
   function startRun() {
-    if (DEBUG.START_ROUND > 1) startAtRound(game, DEBUG.START_ROUND);
+    if (DEBUG.START_IN_FINALE) startAtFinale(game);
+    else if (DEBUG.START_ROUND > 1) startAtRound(game, DEBUG.START_ROUND);
     else gameClick(game, VIEW.W / 2, VIEW.H / 2);
   }
 
@@ -244,18 +248,41 @@ function drawParticles(ctx, sys) {
 }
 
 function render(ctx, game, input, now) {
+  // The triumph replaces the whole world, so it is resolved once here and everything
+  // below asks this rather than the phase — which also covers being paused out of it.
+  const finale = game.phase === PHASE.FINALE || game.pausedFrom === PHASE.FINALE
+    ? game.finale
+    : null;
+
   // Everything below draws in logical 480x272 space; this is the only place the
   // device resolution is acknowledged. setTransform, not scale, so the factor
   // cannot compound across frames.
-  ctx.setTransform(VIEW.SCALE, 0, 0, VIEW.SCALE, 0, 0);
+  //
+  // The finale's screen kick rides in that same transform on purpose: the statue, the
+  // crowd, the thrower and the eggs in flight all have to move together, because a
+  // shake applied to the scenery alone reads as a rendering fault rather than an impact.
+  //
+  // The camera rides the same transform for the same reason, and is identity in every
+  // phase but the finale's fall. Its focal point is a world point that stays PUT on
+  // screen while the rest magnifies around it — not a point that gets centred.
+  const kick = finale ? finaleShake(finale) : { dx: 0, dy: 0 };
+  const cam = finale ? monumentCamera(finale) : { fx: 0, fy: 0, zoom: 1 };
+  const scale = VIEW.SCALE * cam.zoom;
+  ctx.setTransform(scale, 0, 0, scale,
+    (cam.fx * (1 - cam.zoom) + kick.dx) * VIEW.SCALE,
+    (cam.fy * (1 - cam.zoom) + kick.dy) * VIEW.SCALE);
 
   // Ambient world animation runs off game.clock, not `now`: g.clock stops advancing
   // the moment update() sees PHASE.PAUSED, so the water, smoke, gliding flamingos,
   // crowd sway and mascot freeze with everything else instead of shimmering on
   // behind the dim. The overlays below stay on `now` — a menu prompt that stops
   // blinking reads as a lock-up, not as a pause.
-  drawBackground(ctx, game.backdrop, game.scene, game.clock, game.march);
-  drawMascot(ctx, game.mascot, game.clock);
+  if (finale) {
+    drawFinaleScene(ctx, finale, game.backdrop, game.clock);
+  } else {
+    drawBackground(ctx, game.backdrop, game.scene, game.clock, game.march);
+    drawMascot(ctx, game.mascot, game.clock);
+  }
 
   game.decoys.forEach((d) => drawDecoy(ctx, d));
   game.targets.forEach((t) => drawTarget(ctx, t));
@@ -264,21 +291,36 @@ function render(ctx, game, input, now) {
 
   // Also while paused out of PLAYING: the thrower blinking out of the frozen scene the
   // moment the panel opens reads as a glitch, not as a pause.
-  if (game.phase === PHASE.PLAYING || game.pausedFrom === PHASE.PLAYING) {
+  if (game.phase === PHASE.PLAYING || game.pausedFrom === PHASE.PLAYING || finale) {
     // game.clock for the same reason as the background; eggsLeft draws an open,
     // empty hand once the player is out, which is also the cue that the survivors
-    // are about to bolt.
-    drawThrower(ctx, input.x, game.clock, game.eggsLeft);
+    // are about to bolt. The finale passes null instead: eggs are unlimited there,
+    // so an empty hand would promise a limit that does not exist.
+    drawThrower(ctx, input.x, game.clock, finale ? null : game.eggsLeft);
   }
 
-  drawFlash(ctx, game.flash);
+  // The flash defaults to P.bad, which is the penalty red: right for being hit, wrong for
+  // the one moment in the game the player has won something. The triumph flashes dawn.
+  drawFlash(ctx, game.flash, finale ? P.dawnGlow : undefined);
+
+  // Everything below is screen furniture, not world, so it must not ride the camera or
+  // the kick. Under the old 2px shake that was invisible and nobody minded; under the
+  // finale's 1.35x it would draw the pause menu magnified and shoved off-centre.
+  ctx.setTransform(VIEW.SCALE, 0, 0, VIEW.SCALE, 0, 0);
 
   if (game.phase === PHASE.MENU) drawMenu(ctx, game.best, now, input.touch);
   if (game.phase === PHASE.INTRO) drawRoundIntro(ctx, game.round, now);
   if (game.phase === PHASE.CLEAR) drawRoundClear(ctx, game.round, game.hits, now);
   if (game.phase === PHASE.OVER) drawGameOver(ctx, game.score, game.best, game.round);
 
-  if (game.phase !== PHASE.MENU && game.phase !== PHASE.OVER) drawHud(ctx, hudView(game));
+  // No HUD bar over the triumph: there is no round, quota or egg count left to report,
+  // and the victory card carries the score.
+  if (game.phase !== PHASE.MENU && game.phase !== PHASE.OVER && !finale) {
+    drawHud(ctx, hudView(game));
+  }
+  if (finale) {
+    drawFinaleOverlay(ctx, finale, { round: game.round, score: game.score, best: game.best }, now);
+  }
 
   if (game.toast.ms > 0) drawToast(ctx, game.toast.text, game.toast.color, game.toast.ms / TOAST_FADE_MS);
 
