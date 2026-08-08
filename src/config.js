@@ -174,8 +174,19 @@ export const ROUND = {
   FINAL_ROUND: 12,
   // Hits needed to advance, as [upToRound, hitsRequired] tiers read in order.
   // The final tier applies to every round beyond it.
-  QUOTA_TIERS: [[2, 6], [5, 7], [9, 8], [Infinity, 9]],
-  EGGS_PER_RELEASE: 3,
+  //
+  // Was 6/7/8/9. That curve was written when every target got three eggs to itself, and
+  // it kept rising after pairs began and eggs per target had collapsed — asking 9 of 10
+  // on the last round. Simulated against the engine, a near-perfect player cleared the
+  // game 69% of the time and a merely good one 3%.
+  QUOTA_TIERS: [[2, 6], [5, 6], [9, 7], [Infinity, 8]],
+  // Per TARGET, not per release. It was per release, which meant a pair arrived with
+  // the same three eggs a single got, silently halving eggs per target on the exact
+  // round the quota rose and the speed ramped. That was the difficulty cliff: a casual
+  // player won 0 of 500 simulated runs and died on round 3 in over half of them.
+  // Counting per target keeps the ratio flat across all twelve rounds, so no future
+  // change to PAIRS_FROM_ROUND can bring the cliff back.
+  EGGS_PER_TARGET: 3,
   PAIRS_FROM_ROUND: 3,
   SPEED_RAMP: 1.08,
   SPEED_CAP: 2.2,
@@ -306,13 +317,34 @@ export const FEEL = {
   FLY_Y_MIN: 24,            // and are clamped to this band while flying
   FLY_Y_MAX: 150,
   BOB_RATE: 0.004,          // sine phase advance, scaled by the figure's wobble
-  BOB_AMPLITUDE: 0.06,
+  // Was 0.06. Over an egg's 350ms flight the bob moves a figure up to ~30 logical px
+  // vertically — more than Balla's entire 22px hitbox — so it, not horizontal lead, was
+  // the hardest thing about aiming, and the thing weaker players read worst.
+  BOB_AMPLITUDE: 0.045,
+  // Added to every side of the box an egg is tested against, and to nothing else. Aim
+  // forgiveness helps a poor aim far more than a good one, which is what lets a casual
+  // player finish the game without making it trivial for someone who can already aim.
+  // Kept small: at 2px on a 22-34px figure it is invisible in play.
+  HIT_PAD: 2,
   SWERVE_CHANCE: 0.00035,   // chance per ms of reversing direction, x wobble
   FLAP_MS: 140,             // wing-flap period
   SCARE_MS: 260,            // how long a near miss panics a politician
   SCARE_CLIMB: 0.03,        // upward px per ms while panicking
-  FLEE_BOOST: 2.2,          // speed multiplier once the player is out of eggs
-  FLEE_WINDOW_MS: 700,      // and how long until it is gone for good
+  // Speed multiplier once a figure is leaving — because the player ran out of eggs, or
+  // because its own time on screen is up. Was 2.2, which was enough to look like a bolt
+  // but not enough to actually clear the frame from the middle of the sky.
+  FLEE_BOOST: 4,
+  // Hard deadline to be GONE by, measured from the moment it starts leaving. This is a
+  // backstop for a figure that CANNOT reach an edge (stalled, or boosted from a
+  // standstill), not the normal route out: the boost above is meant to carry it off the
+  // side well before this. Was 700ms, which could not cross half a screen at any speed
+  // the game uses, so figures were deleted in open sky instead.
+  // 2600 rather than 2000 because at round 1 speeds a boosted figure crossing from the
+  // far side needs about 2.4s, and at 2000 roughly 2% of round-1 figures were still
+  // being cut off just inside the frame. Raising it costs nothing on the normal route —
+  // whichever comes first wins, and a figure that reaches the edge leaves there — so
+  // this only ever lengthens the life of one that genuinely cannot get out.
+  EXIT_MS: 2600,
   // How long a figure must have been fully inside the view before leaving by an
   // edge counts as an escape. Roughly a reaction plus one egg's EGG.FLIGHT_MS, so
   // a figure that turns straight back around still gives the player one aimed

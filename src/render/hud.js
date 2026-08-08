@@ -37,9 +37,16 @@ export function drawHud(ctx, view) {
   text(ctx, `${S.score} ${view.score}`, 58, y, { size: 7 });
   text(ctx, `${S.best} ${view.best}`, 150, y, { size: 7, color: P.hudDim });
 
-  // Eggs remaining.
+  // Eggs remaining. A release is paid for per politician now, so this row is six dots
+  // on every round from PAIRS_FROM_ROUND rather than a fixed three, and at the old
+  // x=236 the sixth ran to 284 and drew over the hit-o-meter pips at 276.
+  //
+  // The row moved left instead of tightening its spacing. Closing the gap to 7px did
+  // fit, but six 6px dots 1px apart read as one bar rather than six eggs, which is the
+  // one thing this row exists to say. From 218 the six end at 266, clear of the pips,
+  // and still start clear of REKORDI — which ends around x=206 at a six-figure score.
   for (let i = 0; i < view.eggsTotal; i += 1) {
-    const cx = 236 + i * 9;
+    const cx = 218 + i * 9;
     ctx.beginPath();
     ctx.arc(cx, VIEW.H - 9, 3, 0, Math.PI * 2);
     if (i < view.eggsLeft) { ctx.fillStyle = P.egg; ctx.fill(); }

@@ -6,7 +6,7 @@ import {
 } from './rules.js';
 import { spawnEgg, updateEgg } from './entities/egg.js';
 import {
-  spawnTarget, updateTarget, targetBox, hitTarget, nearMissScare, flee
+  spawnTarget, updateTarget, hitBox, hitTarget, nearMissScare, flee
 } from './entities/target.js';
 import { spawnDecoy, updateDecoy, decoyBox, hitDecoy, pickDecoyKind } from './entities/decoy.js';
 import {
@@ -72,6 +72,9 @@ export function createGame(hooks) {
     released: 0,
     pips: Array(ROUND.TARGETS_PER_ROUND).fill('pending'),
     eggsLeft: 0,
+    // How many the current release started with. Per-release state rather than a config
+    // constant, because a pair is paid for in eggs and a single is not.
+    eggsTotal: 0,
     firstEggUsed: false,
     targets: [],
     eggs: [],
@@ -115,6 +118,7 @@ function startRound(g, round) {
   g.toast = { text: '', color: P.bad, ms: 0 };
   g.flash = 0;
   g.eggsLeft = 0;
+  g.eggsTotal = 0;
   g.releaseGap = 0;
   g.march = 0;                 // the marching backdrop restarts at the square
   g.finale = null;
@@ -180,7 +184,13 @@ function release(g) {
   if (g.round >= DECOY.FROM_ROUND && Math.random() < DECOY.CHANCE) {
     g.decoys.push(spawnDecoy(pickDecoyKind(), g.round));
   }
-  g.eggsLeft = ROUND.EGGS_PER_RELEASE;
+  // Eggs are counted per politician released, not per release. A flat allowance meant a
+  // pair arrived with a single's three eggs, which halved eggs per target on the round
+  // pairs begin and made the game unwinnable from there. `count`, not targetsPerRelease,
+  // so the last release of a round — which can be a single when only one is left — is
+  // paid for correctly too.
+  g.eggsTotal = count * ROUND.EGGS_PER_TARGET;
+  g.eggsLeft = g.eggsTotal;
   g.firstEggUsed = false;
 }
 
@@ -212,7 +222,7 @@ function registerDecoyHit(g, decoy, egg) {
 
 /** Resolve a landed egg against targets, then decoys, then the ground. */
 function resolveLanding(g, egg) {
-  const target = g.targets.find((t) => t.state === 'flying' && pointInBox(egg.x, egg.y, targetBox(t)));
+  const target = g.targets.find((t) => t.state === 'flying' && pointInBox(egg.x, egg.y, hitBox(t)));
   if (target) { registerHit(g, target, egg); return; }
 
   const decoy = g.decoys.find((d) => d.state === 'crossing' && !d.yolk && pointInBox(egg.x, egg.y, decoyBox(d)));
@@ -262,6 +272,7 @@ function startFinale(g) {
   // Zeroed so nothing downstream can read a stale count as an egg limit. The finale
   // deliberately does not spend eggs — see click().
   g.eggsLeft = 0;
+  g.eggsTotal = 0;
   g.finale = createMonument();
   saveHighScore(g.score);
   g.best = loadHighScore();
@@ -574,7 +585,7 @@ export function hudView(g) {
     score: g.score,
     best: g.best,
     eggsLeft: g.eggsLeft,
-    eggsTotal: ROUND.EGGS_PER_RELEASE,
+    eggsTotal: g.eggsTotal,
     pips: g.pips,
     muted: isMuted(),
     pauseBox: PAUSE_BUTTON_BOX

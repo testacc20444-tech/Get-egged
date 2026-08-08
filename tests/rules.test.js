@@ -9,12 +9,24 @@ import { ROUND, SCORE } from '../src/config.js';
 test('quota follows the spec table', () => {
   assert.equal(quotaForRound(1), 6);
   assert.equal(quotaForRound(2), 6);
-  assert.equal(quotaForRound(3), 7);
-  assert.equal(quotaForRound(5), 7);
-  assert.equal(quotaForRound(6), 8);
-  assert.equal(quotaForRound(9), 8);
-  assert.equal(quotaForRound(10), 9);
-  assert.equal(quotaForRound(99), 9);
+  assert.equal(quotaForRound(3), 6);
+  assert.equal(quotaForRound(5), 6);
+  assert.equal(quotaForRound(6), 7);
+  assert.equal(quotaForRound(9), 7);
+  assert.equal(quotaForRound(10), 8);
+  assert.equal(quotaForRound(99), 8);
+});
+
+// The curve must never ask for more than the player can throw at. It rose past that
+// once — 9 of 10 on the last round, when a pair shared three eggs — and that is what
+// made the back half of the game unwinnable.
+test('the quota never outruns the number of politicians released', () => {
+  for (let round = 1; round <= ROUND.FINAL_ROUND; round += 1) {
+    assert.ok(quotaForRound(round) <= ROUND.TARGETS_PER_ROUND,
+      `round ${round} asks for ${quotaForRound(round)} of ${ROUND.TARGETS_PER_ROUND}`);
+    assert.ok(quotaForRound(round) >= quotaForRound(round - 1) || round === 1,
+      `round ${round} quota must not fall`);
+  }
 });
 
 test('round 1 has no speed ramp and later rounds ramp but stay capped', () => {
@@ -63,9 +75,14 @@ test('pointInBox includes edges and excludes outside', () => {
   assert.equal(pointInBox(25, 60.1, box), false);
 });
 
+// Written against quotaForRound rather than baked-in hit counts: what this is actually
+// asserting is that the boundary is >= and not >, and it should not have to be edited
+// every time the difficulty curve is tuned.
 test('roundPassed compares hits against the round quota', () => {
-  assert.equal(roundPassed(5, 1), false);
-  assert.equal(roundPassed(6, 1), true);
-  assert.equal(roundPassed(8, 10), false);
-  assert.equal(roundPassed(9, 10), true);
+  for (const round of [1, 6, 10, ROUND.FINAL_ROUND]) {
+    const q = quotaForRound(round);
+    assert.equal(roundPassed(q - 1, round), false, `round ${round}: one short must fail`);
+    assert.equal(roundPassed(q, round), true, `round ${round}: exactly the quota must pass`);
+    assert.equal(roundPassed(q + 1, round), true, `round ${round}: over the quota must pass`);
+  }
 });

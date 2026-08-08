@@ -100,10 +100,52 @@ test('the escape timer still fires for a figure that never entered the view', ()
   const t = spawnTarget(BERISHA, 1, 'left');
   t.vx = 0;           // stalled just off the left edge: it will never enter
   t.escapeMs = 500;
-  const { result, ms } = runUntilDone(t, { maxMs: 4000 });
+  const { result, ms } = runUntilDone(t, { maxMs: 8000 });
   assert.equal(result, 'escaped');
   assert.equal(fullyInsideView(t), false, 'the fixture is meant to never enter');
-  assert.ok(ms <= 500 + FRAME_MS, `the backstop fired late, at ${ms}ms`);
+  // Two frames of slack, not one: the deadline is crossed on a frame boundary and then
+  // the exit window it opens is crossed on another, so each rounds up independently.
+  assert.ok(ms <= 500 + FEEL.EXIT_MS + 2 * FRAME_MS, `the backstop fired late, at ${ms}ms`);
+});
+
+/**
+ * The escape timer says a politician's time is UP, not that it should cease to exist.
+ * It used to do the latter: measured over the real engine, it removed 76-88% of all
+ * figures, and 94-96% of those were mid-air — on average ~150px from the nearest edge,
+ * a third of the screen. Politicians blinked out of existence in open sky.
+ */
+test('a politician whose time is up flies off the screen instead of vanishing mid-air', () => {
+  const t = spawnTarget(BERISHA, 1, 'left');
+  flyIn(t);
+  t.x = VIEW.W / 2;              // parked in open sky, as far from either edge as it gets
+  t.escapeMs = t.life + 100;     // ...and out of time
+  const { result } = withRandom(1, () => runUntilDone(t, { maxMs: 30000 }));
+  assert.equal(result, 'escaped');
+  assert.equal(completelyOutsideView(t), true,
+    `removed at x=${t.x.toFixed(1)} with the view 0..${VIEW.W} — it vanished instead of leaving`);
+});
+
+test('a figure that is leaving stays hittable on the way out', () => {
+  const t = spawnTarget(BERISHA, 1, 'left');
+  flyIn(t);
+  t.escapeMs = t.life + 100;
+  withRandom(1, () => updateTarget(t, 200));           // past its deadline: now bolting
+  assert.equal(t.state, 'flying', 'a bolting figure is still in play, not already gone');
+  assert.equal(t.fleeing, true);
+  hitTarget(t);
+  assert.equal(t.state, 'falling', 'the last-chance shot has to count');
+});
+
+test('a figure that cannot reach an edge is still removed, but only after a real attempt', () => {
+  const t = spawnTarget(BERISHA, 1, 'left');
+  flyIn(t);
+  t.vx = 0;                      // stalled: no edge is reachable at any boost
+  const deadline = t.escapeMs;
+  const { result, ms } = runUntilDone(t, { maxMs: 30000 });
+  assert.equal(result, 'escaped');
+  assert.ok(ms >= deadline, `went early, at ${ms}ms against a ${deadline}ms deadline`);
+  assert.ok(ms <= deadline + FEEL.EXIT_MS + 2 * FRAME_MS,
+    `the backstop must still bound a figure that cannot leave; took ${ms}ms`);
 });
 
 test('the escape timer still ends a figure that entered and then loitered', () => {
@@ -115,28 +157,28 @@ test('the escape timer still ends a figure that entered and then loitered', () =
   assert.ok(t.life >= t.escapeMs, 'the timeout is what should have ended it');
 });
 
-test('flee boosts the figure in the direction it is already travelling and pulls its deadline in', () => {
+test('flee boosts the figure in the direction it is already travelling and sets a hard exit', () => {
   const t = spawnTarget(BERISHA, 1, 'left'); // travelling right, away from its nearest edge
   withRandom(1, () => updateTarget(t, 200));
   const vxBefore = t.vx;
-  const escapeBefore = t.escapeMs;
 
   flee(t);
 
   assert.equal(t.fleeing, true);
   assert.ok(Math.abs(t.vx - vxBefore * FEEL.FLEE_BOOST) < 1e-9, `vx was ${t.vx}`);
   assert.ok(t.vx > 0, 'the direction of travel is kept deliberately, not turned toward the near edge');
-  assert.equal(t.escapeMs, t.life + FEEL.FLEE_WINDOW_MS);
-  assert.ok(t.escapeMs < escapeBefore);
+  // A deadline to be GONE by, not a deadline to be deleted at: the boost above is meant
+  // to carry it off the edge well before this, and this only catches one that cannot.
+  assert.equal(t.goneAt, t.life + FEEL.EXIT_MS);
 });
 
-test('a fleeing figure that has not yet entered still leaves within the flee window', () => {
+test('a fleeing figure that has not yet entered still leaves within the exit window', () => {
   const t = spawnTarget(BERISHA, 1, 'left');
   flee(t);
   assert.equal(fullyInsideView(t), false, 'it flees before it has arrived');
   const { result, ms } = runUntilDone(t, { maxMs: 8000 });
   assert.equal(result, 'escaped');
-  assert.ok(ms <= FEEL.FLEE_WINDOW_MS + FRAME_MS, `it lingered for ${ms}ms`);
+  assert.ok(ms <= FEEL.EXIT_MS + FRAME_MS, `it lingered for ${ms}ms`);
 });
 
 test('a near miss panics a flying figure and is ignored once it is falling', () => {
@@ -182,7 +224,9 @@ test('no spawn can be stranded: every figure escapes or lands by its escape dead
           const { result, ms } = withRandom(roll, () => runUntilDone(t, { maxMs: 30000 }));
           const where = `${FIGURES[figure].id} from ${side}, round ${round}, roll ${roll}`;
           assert.ok(result === 'escaped' || result === 'landed', `${where} never finished`);
-          assert.ok(ms <= t.escapeMs + FRAME_MS, `${where} outlived its deadline by ${ms - t.escapeMs}ms`);
+          // escapeMs starts the exit; EXIT_MS bounds how long the exit itself may take.
+          const bound = t.escapeMs + FEEL.EXIT_MS + 2 * FRAME_MS;   // see the note above
+          assert.ok(ms <= bound, `${where} outlived its deadline by ${ms - bound}ms`);
         }
       }
     }

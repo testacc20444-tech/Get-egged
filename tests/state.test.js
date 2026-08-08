@@ -102,7 +102,7 @@ test('clicking the menu starts round 1', () => {
   run(g, 1600);
   assert.equal(g.phase, PHASE.PLAYING);
   assert.equal(g.targets.length, 1, 'round 1 releases one politician at a time');
-  assert.equal(g.eggsLeft, ROUND.EGGS_PER_RELEASE);
+  assert.equal(g.eggsLeft, ROUND.EGGS_PER_TARGET);
 });
 
 test('a click during play spends an egg and spawns a projectile', () => {
@@ -111,7 +111,7 @@ test('a click during play spends an egg and spawns a projectile', () => {
   run(g, 1600);
   click(g, 200, 90);
   assert.equal(g.eggs.length, 1);
-  assert.equal(g.eggsLeft, ROUND.EGGS_PER_RELEASE - 1);
+  assert.equal(g.eggsLeft, ROUND.EGGS_PER_TARGET - 1);
 });
 
 test('clicks are ignored once eggs run out', () => {
@@ -120,7 +120,7 @@ test('clicks are ignored once eggs run out', () => {
   run(g, 1600);
   for (let i = 0; i < 5; i += 1) click(g, 200, 90);
   assert.equal(g.eggsLeft, 0);
-  assert.equal(g.eggs.length, ROUND.EGGS_PER_RELEASE);
+  assert.equal(g.eggs.length, ROUND.EGGS_PER_TARGET);
 });
 
 test('an egg landing on a target scores it and marks a hit pip', () => {
@@ -172,11 +172,14 @@ test('running out of eggs makes the survivors flee instead of loitering', () => 
   run(g, 1600);
   const t = g.targets[0];
   const escapeBefore = t.escapeMs;
-  for (let i = 0; i < ROUND.EGGS_PER_RELEASE; i += 1) click(g, 5, 5); // deliberate misses
+  for (let i = 0; i < ROUND.EGGS_PER_TARGET; i += 1) click(g, 5, 5); // deliberate misses
   run(g, EGG.FLIGHT_MS + 48);
   assert.equal(g.eggsLeft, 0);
   assert.equal(t.fleeing, true);
-  assert.ok(t.escapeMs < escapeBefore, 'a fleeing politician should leave sooner');
+  // escapeMs is when a politician decides to leave, and this one has already decided,
+  // so flee() no longer pulls it in — goneAt is the deadline that matters now.
+  assert.ok(t.goneAt !== null && t.goneAt < escapeBefore,
+    'a fleeing politician should be gone before its own patience would have run out');
 });
 
 test('missing every egg in a round fails the quota and ends the game', () => {
@@ -424,7 +427,7 @@ test('the HUD pause button pauses without throwing an egg', () => {
   click(g, x, y);
   assert.equal(g.phase, PHASE.PAUSED);
   assert.equal(g.eggs.length, 0, 'opening the menu must not cost an egg');
-  assert.equal(g.eggsLeft, ROUND.EGGS_PER_RELEASE);
+  assert.equal(g.eggsLeft, ROUND.EGGS_PER_TARGET);
   click(g, x, y);
   assert.equal(g.phase, PHASE.PLAYING, 'and it toggles back');
   assert.equal(g.eggs.length, 0);

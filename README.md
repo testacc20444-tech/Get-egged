@@ -57,9 +57,10 @@ keyboard line is wrong in every particular on a phone.
 
 ## How to play
 
-Each round releases 10 politicians, 3 eggs per release. Eggs fly in an arc with a constant
-0.35s flight time, so **aim ahead of a moving target**. Meet the round's hit quota (6, then 7,
-8, and 9 from round 10) or the game ends.
+Each round releases 10 politicians and gives you **three eggs for every politician released** —
+so a lone target comes with three and a pair comes with six. Eggs fly in an arc with a constant
+0.35s flight time, so **aim ahead of a moving target**. Meet the round's hit quota (6, then 7
+from round 6, and 8 from round 10) or the game ends.
 
 | Target | Points |
 |---|---|
@@ -82,7 +83,7 @@ Almost everything you might want to change lives in `src/config.js`:
 | Block | What it controls |
 |---|---|
 | `FEEL` | How the game feels — flight speed scale, bob and swerve rates, the panic climb after a near miss, the flee boost when you run out of eggs, fall acceleration and tumble spin |
-| `ROUND` | Targets per round, eggs per release, when pairs start, the quota curve, the speed ramp and its ceiling, how long a politician stays on screen |
+| `ROUND` | Targets per round, eggs per *target*, when pairs start, the quota curve, the speed ramp and its ceiling, how long a politician stays on screen |
 | `SCORE` | The first-egg bonus and the decoy penalty |
 | `DECOY` | Which round decoys start appearing, how often, how fast |
 | `FIGURES` | Each politician's size, speed, erraticness and points |
@@ -93,9 +94,19 @@ Almost everything you might want to change lives in `src/config.js`:
 | `PALETTE` | Every colour |
 | `STRINGS` | Every word of Albanian the game draws |
 
-If the difficulty ramp feels wrong, `ROUND.SPEED_RAMP` and `ROUND.ESCAPE_MS_STEP` are
-the two dials that matter most; `ROUND.QUOTA_TIERS` sets how many hits each round
-demands.
+If the difficulty ramp feels wrong, the dials that actually move it — measured by
+simulating the real engine over 500 runs per skill level — are `ROUND.EGGS_PER_TARGET`
+and `ROUND.QUOTA_TIERS`, and they move different players: eggs decide whether a weak
+player can get past the pair rounds at all, the quota decides whether a good one can
+finish. `FEEL.HIT_PAD` and `FEEL.BOB_AMPLITUDE` are the aim-forgiveness dials, and they
+help a poor aim far more than a good one, which is the only way to lift beginners
+without making the game trivial for everyone else.
+
+`ROUND.ESCAPE_MS_*` barely moves the win rate — lengthening it from 4200ms to 4800ms
+changed the outcome by 0.0% at every skill level, because a player who is aiming kills a
+politician in about a second, long before its patience runs out. It is not a difficulty
+dial. It *is* the pacing dial: it decides how long a politician is on screen, which is
+most of how the game feels, so change it for rhythm and not for difficulty.
 
 A handful of internal constants remain in their own modules rather than `config.js` —
 phase durations at the top of `src/state.js`, a few physics/tuning knobs local to the
@@ -191,6 +202,22 @@ clamped pace that leans on how far through the round the player actually is. An 
 chased `released / TARGETS_PER_ROUND` directly; because `released` only changes on a release, and
 jumps two at a time once pairs start, the city sat still and lurched ten times a round, which read
 as a slideshow rather than a march.
+
+### How a politician leaves
+
+`escapeMs` is when a politician **decides to leave**, not when it is deleted. Its time up, it
+turns on the speed (`FEEL.FLEE_BOOST`) and bolts for whichever edge it was already heading
+toward — and it stays hittable the whole way out, so there is a real last-chance shot. Running
+the player out of eggs does exactly the same thing, because it is the same event from the
+figure's point of view. `FEEL.EXIT_MS` is a backstop for a figure that *cannot* reach an edge
+(stalled, or boosted from a standstill), not the normal route out.
+
+This is worth stating because the obvious implementation is wrong and shipped once. When
+`escapeMs` simply ended the figure, it removed 76–88% of every politician spawned, and 94–96%
+of those were mid-air — on average ~150px from the nearest edge, because the timer is set to
+about 40% of the time a figure needs to cross the view. Since an escape sets `removeAt` to the
+current clock, they did not fly away; they blinked out of existence in an empty sky. It now
+measures 0%: every politician leaves by an edge.
 
 The pace term exists because a march round's real length varies about twofold — roughly ten
 seconds played perfectly, twenty if everything is left to escape. Pure time-based progress either

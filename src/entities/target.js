@@ -31,12 +31,28 @@ export function spawnTarget(figureIndex, round, side) {
     fleeing: false,
     entered: false,     // has the whole hitbox been inside the view yet?
     enteredAt: null,    // the `life` at which that first happened
+    goneAt: null,       // set once it starts leaving: the `life` it must be gone by
     removeAt: null
   };
 }
 
 export function targetBox(t) {
   return { x: t.x - t.w / 2, y: t.y - t.h / 2, w: t.w, h: t.h };
+}
+
+/**
+ * The box an egg is tested against: the drawn figure, grown by FEEL.HIT_PAD on every
+ * side.
+ *
+ * Deliberately a second function rather than a wider targetBox. updateTarget below uses
+ * targetBox for the entry gate — "is the whole hitbox inside the view yet?" — and a
+ * padded box there would make every figure count as arriving later, quietly shifting
+ * MIN_ON_SCREEN_MS and the escape timing with it. The two boxes answer different
+ * questions and only one of them should be generous.
+ */
+export function hitBox(t) {
+  const p = FEEL.HIT_PAD;
+  return { x: t.x - t.w / 2 - p, y: t.y - t.h / 2 - p, w: t.w + p * 2, h: t.h + p * 2 };
 }
 
 /** Egged: stop flying, start tumbling. */
@@ -56,15 +72,18 @@ export function nearMissScare(t) {
 }
 
 /**
- * The player is out of eggs: speed up in whichever direction the figure is
- * already travelling (not necessarily the nearest edge), and pull its escape
- * timer in so it is gone within FLEE_WINDOW_MS instead of dawdling.
+ * Start leaving: speed up in whichever direction the figure is already travelling (not
+ * necessarily toward the nearest edge), and set a deadline to be gone by.
+ *
+ * Two things call this and they are the same event from the figure's point of view: the
+ * player running out of eggs, and the figure's own time on screen running out. Both used
+ * to end with it being deleted where it stood — see updateTarget below.
  */
 export function flee(t) {
   if (t.state !== 'flying' || t.fleeing) return;
   t.fleeing = true;
   t.vx *= FEEL.FLEE_BOOST;
-  t.escapeMs = Math.min(t.escapeMs, t.life + FEEL.FLEE_WINDOW_MS);
+  t.goneAt = t.life + FEEL.EXIT_MS;
 }
 
 export function updateTarget(t, dtMs) {
@@ -112,13 +131,25 @@ export function updateTarget(t, dtMs) {
   // reverse vx before entry — so every flying figure is guaranteed to enter.
   if (t.entered && !t.fleeing && Math.random() < dtMs * FEEL.SWERVE_CHANCE * t.wobble) t.vx *= -1;
 
+  // Time up. This STARTS the exit rather than ending the figure. escapeMs says a
+  // politician has had its moment, not that it should cease to exist — and it used to
+  // mean the latter: measured over the real engine it removed 76-88% of every figure
+  // spawned, and 94-96% of those were mid-air, on average ~150px from the nearest edge.
+  // state.js sets removeAt to the current clock for an escape, so they did not fly off,
+  // they blinked out of existence a third of the way across an empty sky.
+  //
+  // A bolting figure is still `flying`, so it stays hittable the whole way out. That is
+  // deliberate: the boost already makes it a harder shot, and a last chance reads far
+  // better than a target being confiscated.
+  if (t.life >= t.escapeMs) flee(t);
+
   // Leaving by an edge only counts once the figure has arrived and been on offer
-  // for MIN_ON_SCREEN_MS. The escapeMs timeout sits outside that gate on purpose:
-  // it is the backstop that guarantees every target eventually reports a terminal
-  // result, including one that flees or stalls before it ever enters.
+  // for MIN_ON_SCREEN_MS. goneAt sits outside that gate on purpose: it is what now
+  // guarantees every target eventually reports a terminal result, including one that
+  // starts leaving before it ever enters, or that is too slow to reach any edge.
   const offScreen = t.x < -t.w * 2 || t.x > VIEW.W + t.w * 2;
   const mayExit = t.entered && t.life - t.enteredAt >= FEEL.MIN_ON_SCREEN_MS;
-  if ((offScreen && mayExit) || t.life >= t.escapeMs) {
+  if ((offScreen && mayExit) || (t.goneAt !== null && t.life >= t.goneAt)) {
     t.state = 'gone';
     return 'escaped';
   }
